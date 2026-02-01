@@ -64,6 +64,23 @@
         <button onclick="router.go('settings')" class="nav-btn flex flex-col items-center gap-1 opacity-50" id="nav-settings">
             <div class="w-6 h-6 bg-current" style="mask: url('https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shield.svg') no-repeat center;"></div>
             <span class="text-[9px] font-bold uppercase">Система</span>
+            <section id="page-map" class="page active">
+    <div id="map" class="w-full h-full"></div>
+
+    <div class="absolute top-[80px] left-3 z-[1001]">
+        <a href="https://send.monobank.ua/YOUR_ID" target="_blank" 
+           class="glass w-11 h-11 flex items-center justify-center rounded-lg border-orange-500/50 hover:bg-orange-500/20 transition-all active:scale-90 shadow-lg group">
+            <div class="w-6 h-6 bg-orange-500 group-hover:bg-orange-400" 
+                 style="mask: url('https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/heart.svg') no-repeat center; mask-size: contain;">
+            </div>
+        </a>
+    </div>
+
+    <div class="absolute top-4 left-4 right-4 z-[1001] pointer-events-none">
+        <div class="glass p-4 hud-border pointer-events-auto flex justify-between items-center">
+            </div>
+    </div>
+</section>
         </button>
     </nav>
 
