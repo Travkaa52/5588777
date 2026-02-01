@@ -1,29 +1,66 @@
 /**
- * TACTICAL MONITOR CORE v3.5 - FINAL REVISION
- * Features: JSON Sync, Custom Icons, Geolocation, Distance Alerts, Push Notifications
+ * TACTICAL MONITOR CORE v3.6 - PERSISTENT EDITION
+ * Features: Settings Memory, Layer Memory, Auto-Focus, Interactive Toggles
  */
 
 const State = {
     targets: [],
-    markers: new Map(),     // Зберігаємо маркери цілей: ID -> Leaflet Marker
-    userCoords: null,       // Координати телефону
-    alertRadius: 50,        // Радіус безпеки в км
+    markers: new Map(),
+    userCoords: null,
+    
+    // Налаштування, що зберігаються
+    alertRadius: 50,
+    activeLayerName: "Тактична (Темна)",
+    missileAlerts: true,
+    autoFocus: false,
+    
     activePage: 'map',
-    notifiedIds: new Set(), // Реєстр відправлених сповіщень
+    notifiedIds: new Set(),
     
     save() {
-        localStorage.setItem('hud_state_v3', JSON.stringify({ 
-            alertRadius: this.alertRadius 
-        }));
+        const data = {
+            alertRadius: this.alertRadius,
+            activeLayerName: this.activeLayerName,
+            missileAlerts: this.missileAlerts,
+            autoFocus: this.autoFocus
+        };
+        localStorage.setItem('hud_state_v3', JSON.stringify(data));
     },
     
     load() {
         const saved = localStorage.getItem('hud_state_v3');
         if (saved) {
             const data = JSON.parse(saved);
-            this.alertRadius = data.alertRadius || 50;
-            const input = document.getElementById('alert-radius');
-            if (input) input.value = this.alertRadius;
+            this.alertRadius = data.alertRadius ?? 50;
+            this.activeLayerName = data.activeLayerName ?? "Тактична (Темна)";
+            this.missileAlerts = data.missileAlerts ?? true;
+            this.autoFocus = data.autoFocus ?? false;
+        }
+        this.syncUI();
+    },
+
+    syncUI() {
+        // Оновлення текстових полів
+        const radiusInput = document.getElementById('alert-radius');
+        if (radiusInput) radiusInput.value = this.alertRadius;
+
+        // Оновлення кнопок-перемикачів
+        this.updateToggleVisual('toggle-missile', this.missileAlerts);
+        this.updateToggleVisual('toggle-focus', this.autoFocus);
+    },
+
+    updateToggleVisual(id, isActive) {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const dot = btn.querySelector('div');
+        if (isActive) {
+            btn.classList.remove('bg-stone-800');
+            btn.classList.add('bg-orange-600');
+            dot.classList.add('translate-x-5'); // Плавне зміщення
+        } else {
+            btn.classList.remove('bg-orange-600');
+            btn.classList.add('bg-stone-800');
+            dot.classList.remove('translate-x-5');
         }
     }
 };
@@ -48,7 +85,6 @@ const ui = {
     userMarker: null,
     ICON_PATH: 'img/',
     
-    // Об'єкт із доступними шарами мап
     tileLayers: {
         "Тактична (Темна)": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'),
         "Супутник": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
@@ -57,30 +93,40 @@ const ui = {
     },
 
     init() {
-        // 1. Ініціалізація карти з базовим шаром (Тактична)
-        this.map = L.map('map', { 
-            zoomControl: false, 
-            attributionControl: false 
-        }).setView([49.0, 31.0], 6);
+        State.load(); // Завантажуємо пам'ять перед стартом
 
-        // Додаємо початковий шар
-        this.tileLayers["Тактична (Темна)"].addTo(this.map);
+        this.map = L.map('map', { zoomControl: false, attributionControl: false }).setView([49.0, 31.0], 6);
 
-        // 2. Додаємо кнопку вибору шарів (в правий верхній кут)
-        L.control.layers(this.tileLayers, null, {
-            collapsed: true // Згорнуто в іконку, розгортається при наведенні/кліку
-        }).addTo(this.map);
+        // Встановлюємо збережений шар
+        const baseLayer = this.tileLayers[State.activeLayerName] || this.tileLayers["Тактична (Темна)"];
+        baseLayer.addTo(this.map);
 
-        // Решта ініціалізації
+        L.control.layers(this.tileLayers, null, { collapsed: true }).addTo(this.map);
+
+        // Зберігаємо вибір шару при зміні
+        this.map.on('baselayerchange', (e) => {
+            State.activeLayerName = e.name;
+            State.save();
+        });
+
         this.initGeolocation();
         if ("Notification" in window) Notification.requestPermission();
 
+        // Події для налаштувань
         document.getElementById('alert-radius')?.addEventListener('change', (e) => {
             State.alertRadius = parseFloat(e.target.value) || 50;
             State.save();
             State.notifiedIds.clear();
-            this.notify(`РАДІУС ОНОВЛЕНО: ${State.alertRadius} КМ`, "info");
+            this.notify(`РАДІУС: ${State.alertRadius} КМ`, "info");
         });
+    },
+
+    toggleSetting(key) {
+        State[key] = !State[key];
+        State.save();
+        State.syncUI();
+        const label = key === 'missileAlerts' ? 'СПОВІЩЕННЯ' : 'АВТОФОКУС';
+        this.notify(`${label}: ${State[key] ? 'УВІМК' : 'ВИМК'}`, "warning");
     },
 
     initGeolocation() {
@@ -110,7 +156,6 @@ const ui = {
     updateMarkers() {
         const currentIds = new Set(State.targets.map(t => String(t.id)));
 
-        // Видалення втрачених цілей
         State.markers.forEach((marker, id) => {
             if (!currentIds.has(id)) {
                 this.map.removeLayer(marker);
@@ -119,7 +164,6 @@ const ui = {
             }
         });
 
-        // Оновлення/Створення маркерів з іконками
         State.targets.forEach(t => {
             const id = String(t.id);
             const iconUrl = `${this.ICON_PATH}${t.type}.png`;
@@ -142,6 +186,49 @@ const ui = {
                 State.markers.set(id, m);
             }
         });
+    },
+
+    checkThreats() {
+        if (!State.userCoords) return;
+
+        State.targets.forEach(t => {
+            const distance = getDistance(State.userCoords.lat, State.userCoords.lng, t.lat, t.lng);
+            if (distance <= State.alertRadius) {
+                if (!State.notifiedIds.has(t.id)) {
+                    // Перевіряємо, чи дозволені сповіщення
+                    if (State.missileAlerts) {
+                        this.sendPush(t, distance);
+                    }
+                    // Перевіряємо авто-фокус
+                    if (State.autoFocus) {
+                        this.focusTarget(t.lat, t.lng);
+                    }
+                    State.notifiedIds.add(t.id);
+                }
+            } else {
+                State.notifiedIds.delete(t.id);
+            }
+        });
+    },
+
+    sendPush(target, dist) {
+        const msg = `Ціль: ${target.label} | Дистанція: ${dist.toFixed(1)} км`;
+        this.notify(`УВАГА! ЗОНА УРАЖЕННЯ: ${dist.toFixed(1)} км`, "danger");
+
+        if (Notification.permission === "granted") {
+            new Notification("⚠️ ТАКТИЧНА ЗАГРОЗА", {
+                body: msg,
+                icon: `${this.ICON_PATH}${target.type}.png`,
+                vibrate: [300, 100, 300]
+            });
+        }
+    },
+
+    focusTarget(lat, lng) {
+        router.go('map');
+        setTimeout(() => {
+            if (this.map) this.map.flyTo([lat, lng], 10, { duration: 1.5 });
+        }, 300);
     },
 
     renderTargetsList() {
@@ -171,40 +258,6 @@ const ui = {
         }).join('');
     },
 
-    checkThreats() {
-        if (!State.userCoords) return;
-
-        State.targets.forEach(t => {
-            const distance = getDistance(State.userCoords.lat, State.userCoords.lng, t.lat, t.lng);
-            if (distance <= State.alertRadius) {
-                if (!State.notifiedIds.has(t.id)) {
-                    this.sendPush(t, distance);
-                    State.notifiedIds.add(t.id);
-                }
-            } else {
-                State.notifiedIds.delete(t.id);
-            }
-        });
-    },
-
-    sendPush(target, dist) {
-        const msg = `Ціль: ${target.label} | Дистанція: ${dist.toFixed(1)} км`;
-        this.notify(`УВАГА! ЗОНА УРАЖЕННЯ: ${dist.toFixed(1)} км`, "danger");
-
-        if (Notification.permission === "granted") {
-            new Notification("⚠️ ТАКТИЧНА ЗАГРОЗА", {
-                body: msg,
-                icon: `${this.ICON_PATH}${target.type}.png`,
-                vibrate: [300, 100, 300]
-            });
-        }
-    },
-
-    focusTarget(lat, lng) {
-        router.go('map');
-        setTimeout(() => this.map.flyTo([lat, lng], 10, { duration: 1.5 }), 300);
-    },
-
     notify(text, type) {
         const log = document.getElementById('logs-container');
         if (!log) return;
@@ -217,7 +270,7 @@ const ui = {
     }
 };
 
-// --- СИСТЕМА ПАРСИНГУ ---
+// --- ПАРСИНГ ТА РОУТЕР (Без змін) ---
 
 const Parser = {
     async fetchData() {
@@ -231,8 +284,6 @@ const Parser = {
         }
     }
 };
-
-// --- РОУТЕР ТА ЦИКЛ ---
 
 const router = {
     go(pageId) {
@@ -249,7 +300,7 @@ const router = {
     },
     updateNav() {
         document.querySelectorAll('.nav-btn').forEach(btn => {
-            const isAct = btn.dataset.page === State.activePage;
+            const isAct = btn.id === `nav-${State.activePage}`;
             btn.style.opacity = isAct ? "1" : "0.5";
             btn.style.color = isAct ? "#f97316" : "#a8a29e";
         });
@@ -269,7 +320,6 @@ async function engine() {
 }
 
 window.onload = () => {
-    State.load();
     ui.init();
     router.updateNav();
     setInterval(() => {
