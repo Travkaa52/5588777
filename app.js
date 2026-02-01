@@ -188,40 +188,52 @@ const ui = {
         });
     },
 
-    checkThreats() {
-        if (!State.userCoords) return;
+checkThreats() {
+        if (!State.userCoords || !State.missileAlerts) return;
 
         State.targets.forEach(t => {
             const distance = getDistance(State.userCoords.lat, State.userCoords.lng, t.lat, t.lng);
-            if (distance <= State.alertRadius) {
-                if (!State.notifiedIds.has(t.id)) {
-                    // Перевіряємо, чи дозволені сповіщення
-                    if (State.missileAlerts) {
-                        this.sendPush(t, distance);
-                    }
-                    // Перевіряємо авто-фокус
-                    if (State.autoFocus) {
-                        this.focusTarget(t.lat, t.lng);
-                    }
-                    State.notifiedIds.add(t.id);
+            
+            // Якщо ціль увійшла в радіус і ми про неї ще не сповіщали
+            if (distance <= State.alertRadius && !State.notifiedIds.has(t.id)) {
+                
+                this.sendPush(t, distance);
+                State.notifiedIds.add(t.id); // Фіксуємо, що сповіщення відправлено
+
+                if (State.autoFocus) {
+                    this.focusTarget(t.lat, t.lng);
                 }
-            } else {
+            } 
+            
+            // Опціонально: якщо ціль вийшла далеко за межі радіуса (наприклад, +10км), 
+            // можна видалити її з notifiedIds, щоб при повторному наближенні знову спрацювало.
+            // Якщо хочете суворо 1 раз за весь час сесії — цей блок можна видалити.
+            if (distance > State.alertRadius + 10 && State.notifiedIds.has(t.id)) {
                 State.notifiedIds.delete(t.id);
             }
         });
     },
 
     sendPush(target, dist) {
-        const msg = `Ціль: ${target.label} | Дистанція: ${dist.toFixed(1)} км`;
-        this.notify(`УВАГА! ЗОНА УРАЖЕННЯ: ${dist.toFixed(1)} км`, "danger");
+        const title = "⚠️ ТАКТИЧНА ЗАГРОЗА";
+        const options = {
+            body: `Ціль: ${target.label} | Дистанція: ${dist.toFixed(1)} км`,
+            icon: `${this.ICON_PATH}${target.type}.png`,
+            badge: `${this.ICON_PATH}missile.png`, // Маленька іконка для статус-бару
+            vibrate: [500, 110, 500, 110, 450],
+            tag: target.id, // Важливо: повідомлення з однаковим tag замінюють одне одного
+            renotify: true,
+            data: { lat: target.lat, lng: target.lng }
+        };
 
-        if (Notification.permission === "granted") {
-            new Notification("⚠️ ТАКТИЧНА ЗАГРОЗА", {
-                body: msg,
-                icon: `${this.ICON_PATH}${target.type}.png`,
-                vibrate: [300, 100, 300]
+        // Виклик через Service Worker дозволяє сповіщенню з'явитися, навіть якщо браузер згорнуто
+        if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+            navigator.serviceWorker.ready.then(registration => {
+                registration.showNotification(title, options);
             });
         }
+        
+        this.notify(`PUSH: ${target.label} (${dist.toFixed(1)} км)`, "danger");
     },
 
     focusTarget(lat, lng) {
