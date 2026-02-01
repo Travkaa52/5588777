@@ -46,24 +46,39 @@ function getDistance(lat1, lon1, lat2, lon2) {
 const ui = {
     map: null,
     userMarker: null,
-    ICON_PATH: 'img/', // Папка з вашими png
+    ICON_PATH: 'img/',
+    
+    // Об'єкт із доступними шарами мап
+    tileLayers: {
+        "Тактична (Темна)": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'),
+        "Супутник": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
+        "Топографія": L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'),
+        "Теплова (Light)": L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png')
+    },
 
     init() {
-        // Карта
-        this.map = L.map('map', { zoomControl: false, attributionControl: false }).setView([49.0, 31.0], 6);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(this.map);
+        // 1. Ініціалізація карти з базовим шаром (Тактична)
+        this.map = L.map('map', { 
+            zoomControl: false, 
+            attributionControl: false 
+        }).setView([49.0, 31.0], 6);
 
-        // Геолокація
+        // Додаємо початковий шар
+        this.tileLayers["Тактична (Темна)"].addTo(this.map);
+
+        // 2. Додаємо кнопку вибору шарів (в правий верхній кут)
+        L.control.layers(this.tileLayers, null, {
+            collapsed: true // Згорнуто в іконку, розгортається при наведенні/кліку
+        }).addTo(this.map);
+
+        // Решта ініціалізації
         this.initGeolocation();
-        
-        // Дозвіл на сповіщення
         if ("Notification" in window) Notification.requestPermission();
 
-        // Слухач радіуса
         document.getElementById('alert-radius')?.addEventListener('change', (e) => {
             State.alertRadius = parseFloat(e.target.value) || 50;
             State.save();
-            State.notifiedIds.clear(); // Дозволяємо перевірити цілі за новим радіусом
+            State.notifiedIds.clear();
             this.notify(`РАДІУС ОНОВЛЕНО: ${State.alertRadius} КМ`, "info");
         });
     },
